@@ -8,18 +8,56 @@ app.secret_key = os.urandom(24)  # For flash messages
 
 # Initialize database
 def init_db():
-    if not os.path.exists('sensor_data.db'):
-        conn = sqlite3.connect('sensor_data.db')
-        c = conn.cursor()
+    conn = sqlite3.connect('sensor_data.db')
+    c = conn.cursor()
+    
+    # Check if database exists and has the old schema
+    try:
+        c.execute('SELECT * FROM readings LIMIT 1')
+        # If we get here, table exists. Let's check the columns
+        columns = [description[0] for description in c.description]
+        
+        # If we don't have the new columns, alter the table
+        if 'aqi_value' not in columns:
+            print("Upgrading database schema...")
+            # Rename old table
+            c.execute('ALTER TABLE readings RENAME TO readings_old')
+            
+            # Create new table with updated schema
+            c.execute('''
+                CREATE TABLE readings (
+                    id INTEGER PRIMARY KEY,
+                    sensor_id INTEGER,
+                    aqi_value REAL,
+                    co2_ppm REAL,
+                    aqi_category TEXT,
+                    timestamp DATETIME,
+                    FOREIGN KEY (sensor_id) REFERENCES sensors (id)
+                )
+            ''')
+            
+            # Migrate old data
+            c.execute('''
+                INSERT INTO readings (id, sensor_id, aqi_value, timestamp)
+                SELECT id, sensor_id, value, timestamp FROM readings_old
+            ''')
+            
+            # Drop old table
+            c.execute('DROP TABLE readings_old')
+            
+            conn.commit()
+            print("Database schema upgraded successfully")
+    except sqlite3.OperationalError:
+        # Table doesn't exist, create from scratch
         c.execute('''
-            CREATE TABLE sensors (
+            CREATE TABLE IF NOT EXISTS sensors (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT
             )
         ''')
         c.execute('''
-            CREATE TABLE readings (
+            CREATE TABLE IF NOT EXISTS readings (
                 id INTEGER PRIMARY KEY,
                 sensor_id INTEGER,
                 aqi_value REAL,
@@ -30,13 +68,14 @@ def init_db():
             )
         ''')
         
-        # Add a default AQI sensor
-        c.execute('INSERT INTO sensors (name, description) VALUES (?, ?)', 
+        # Add a default AQI sensor if not exists
+        c.execute('INSERT OR IGNORE INTO sensors (name, description) VALUES (?, ?)', 
                   ('Default AQI Sensor', 'Automatically created AQI sensor'))
         
         conn.commit()
-        conn.close()
-        print("Database initialized")
+        print("Database initialized with new schema")
+    
+    conn.close()
 
 def get_db_connection():
     conn = sqlite3.connect('sensor_data.db')
@@ -413,15 +452,6 @@ def get_all_sensors():
 # Special API route for LoRa devices
 @app.route('/api/lora/data', methods=['POST'])
 def add_lora_data():
-    """
-    Endpoint specifically for LoRa receivers to send air quality data
-    Expected format:
-    {
-        "sensor_id": optional_id,
-        "value": "CO2: X ppm, AQI: Y, Zone: Z",
-        "timestamp": "ISO-format-timestamp"
-    }
-    """
     data = request.get_json()
     
     if not data or 'value' not in data:
@@ -437,7 +467,6 @@ def add_lora_data():
     if isinstance(data['value'], (int, float)):
         # If direct numeric value, treat as AQI
         aqi_value = float(data['value'])
-        aqi_category = get_aqi_category(aqi_value)[0]  # Get category name only
     else:
         # Try to parse the string format
         try:
@@ -473,7 +502,6 @@ def add_lora_data():
     if 'sensor_id' in data and data['sensor_id']:
         sensor_id = data['sensor_id']
     else:
-        # Get or create default AQI sensor
         conn = get_db_connection()
         sensor = conn.execute('SELECT id FROM sensors WHERE name = ?', 
                             ('Default AQI Sensor',)).fetchone()
@@ -489,12 +517,21 @@ def add_lora_data():
     
     # Store the reading
     conn = get_db_connection()
-    conn.execute('''
-        INSERT INTO readings (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp) 
-        VALUES (?, ?, ?, ?, ?)
-    ''', (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute('''
+            INSERT INTO readings (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp) 
+            VALUES (?, ?, ?, ?, ?)
+        ''', (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp))
+        conn.commit()
+        success = True
+    except sqlite3.OperationalError:
+        # Fallback to old schema if new schema fails
+        conn.execute('INSERT INTO readings (sensor_id, value, timestamp) VALUES (?, ?, ?)', 
+                    (sensor_id, aqi_value, timestamp))
+        conn.commit()
+        success = True
+    finally:
+        conn.close()
     
     return jsonify({
         "status": "success",
