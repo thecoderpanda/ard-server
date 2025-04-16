@@ -22,7 +22,9 @@ def init_db():
             CREATE TABLE readings (
                 id INTEGER PRIMARY KEY,
                 sensor_id INTEGER,
-                value REAL,
+                aqi_value REAL,
+                co2_ppm REAL,
+                aqi_category TEXT,
                 timestamp DATETIME,
                 FOREIGN KEY (sensor_id) REFERENCES sensors (id)
             )
@@ -413,13 +415,58 @@ def get_all_sensors():
 def add_lora_data():
     """
     Endpoint specifically for LoRa receivers to send air quality data
+    Expected format:
+    {
+        "sensor_id": optional_id,
+        "value": "CO2: X ppm, AQI: Y, Zone: Z",
+        "timestamp": "ISO-format-timestamp"
+    }
     """
     data = request.get_json()
     
     if not data or 'value' not in data:
         return jsonify({"error": "Value is required"}), 400
     
-    value = data['value']
+    # Parse the value string to extract CO2 and AQI
+    value_str = str(data['value'])
+    co2_ppm = None
+    aqi_value = None
+    aqi_category = None
+    
+    # Handle both string format and direct numeric format
+    if isinstance(data['value'], (int, float)):
+        # If direct numeric value, treat as AQI
+        aqi_value = float(data['value'])
+        aqi_category = get_aqi_category(aqi_value)[0]  # Get category name only
+    else:
+        # Try to parse the string format
+        try:
+            if "CO2:" in value_str and "AQI:" in value_str:
+                # Parse CO2
+                co2_start = value_str.find("CO2:") + 4
+                co2_end = value_str.find("ppm")
+                if co2_start > 3 and co2_end > co2_start:
+                    co2_ppm = float(value_str[co2_start:co2_end].strip())
+                
+                # Parse AQI
+                aqi_start = value_str.find("AQI:") + 4
+                aqi_end = value_str.find(",", aqi_start)
+                if aqi_start > 3:
+                    if aqi_end == -1:
+                        aqi_value = float(value_str[aqi_start:].strip())
+                    else:
+                        aqi_value = float(value_str[aqi_start:aqi_end].strip())
+                
+                # Parse Zone if available
+                if "Zone:" in value_str:
+                    zone_start = value_str.find("Zone:") + 5
+                    aqi_category = value_str[zone_start:].strip()
+            else:
+                # Treat as direct AQI value
+                aqi_value = float(value_str)
+        except (ValueError, IndexError) as e:
+            return jsonify({"error": f"Failed to parse value: {str(e)}"}), 400
+    
     timestamp = data.get('timestamp', datetime.datetime.now().isoformat())
     
     # Either use provided sensor_id or get default sensor
@@ -428,7 +475,8 @@ def add_lora_data():
     else:
         # Get or create default AQI sensor
         conn = get_db_connection()
-        sensor = conn.execute('SELECT id FROM sensors WHERE name = ?', ('Default AQI Sensor',)).fetchone()
+        sensor = conn.execute('SELECT id FROM sensors WHERE name = ?', 
+                            ('Default AQI Sensor',)).fetchone()
         
         if sensor:
             sensor_id = sensor['id']
@@ -437,17 +485,26 @@ def add_lora_data():
                      ('Default AQI Sensor', 'Automatically created AQI sensor'))
             sensor_id = cursor.lastrowid
             conn.commit()
-        
         conn.close()
     
     # Store the reading
     conn = get_db_connection()
-    conn.execute('INSERT INTO readings (sensor_id, value, timestamp) VALUES (?, ?, ?)', 
-               (sensor_id, value, timestamp))
+    conn.execute('''
+        INSERT INTO readings (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp) 
+        VALUES (?, ?, ?, ?, ?)
+    ''', (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp))
     conn.commit()
     conn.close()
     
-    return jsonify({"status": "success"}), 201
+    return jsonify({
+        "status": "success",
+        "stored_data": {
+            "aqi_value": aqi_value,
+            "co2_ppm": co2_ppm,
+            "aqi_category": aqi_category,
+            "timestamp": timestamp
+        }
+    }), 201
 
 if __name__ == '__main__':
     init_db()
