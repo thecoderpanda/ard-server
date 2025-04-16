@@ -2,7 +2,11 @@ version: '3.8'
 
 services:
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ard-server:latest
+    container_name: ard-server-web
     ports:
       - "9090:9090"
     volumes:
@@ -13,4 +17,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  sensor_data: 
+  sensor_data:
+    name: ard_sensor_data 
