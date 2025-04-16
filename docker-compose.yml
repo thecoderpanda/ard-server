@@ -8,13 +8,19 @@ services:
     image: ard-server:latest
     container_name: ard-server-web
     ports:
-      - "9090:9090"
+      - "0.0.0.0:9090:9090"
+    networks:
+      - ard_network
     volumes:
       - .:/app
       - sensor_data:/app/data
     environment:
       - FLASK_ENV=development
     restart: unless-stopped
+
+networks:
+  ard_network:
+    driver: bridge
 
 volumes:
   sensor_data:
