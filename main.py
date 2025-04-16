@@ -466,38 +466,42 @@ def add_lora_data():
     aqi_value = None
     aqi_category = None
     
-    # Handle both string format and direct numeric format
-    if isinstance(data['value'], (int, float)):
-        # If direct numeric value, treat as AQI
-        aqi_value = float(data['value'])
-    else:
-        # Try to parse the string format
-        try:
+    try:
+        if isinstance(data['value'], (int, float)):
+            # If direct numeric value, treat as AQI
+            aqi_value = float(data['value'])
+        else:
+            # Parse the string format: "CO2: X ppm, AQI: Y, Zone: Z"
             if "CO2:" in value_str and "AQI:" in value_str:
                 # Parse CO2
                 co2_start = value_str.find("CO2:") + 4
                 co2_end = value_str.find("ppm")
                 if co2_start > 3 and co2_end > co2_start:
-                    co2_ppm = float(value_str[co2_start:co2_end].strip())
+                    co2_str = value_str[co2_start:co2_end].strip()
+                    co2_ppm = float(co2_str)
                 
                 # Parse AQI
                 aqi_start = value_str.find("AQI:") + 4
                 aqi_end = value_str.find(",", aqi_start)
                 if aqi_start > 3:
                     if aqi_end == -1:
-                        aqi_value = float(value_str[aqi_start:].strip())
+                        aqi_str = value_str[aqi_start:].strip()
                     else:
-                        aqi_value = float(value_str[aqi_start:aqi_end].strip())
+                        aqi_str = value_str[aqi_start:aqi_end].strip()
+                    aqi_value = float(aqi_str)
                 
-                # Parse Zone if available
+                # Parse Zone
                 if "Zone:" in value_str:
                     zone_start = value_str.find("Zone:") + 5
                     aqi_category = value_str[zone_start:].strip()
             else:
-                # Treat as direct AQI value
+                # Try to parse as direct AQI value
                 aqi_value = float(value_str)
-        except (ValueError, IndexError) as e:
-            return jsonify({"error": f"Failed to parse value: {str(e)}"}), 400
+    except (ValueError, IndexError) as e:
+        return jsonify({"error": f"Failed to parse value: {str(e)}"}), 400
+    
+    if aqi_value is None and co2_ppm is None:
+        return jsonify({"error": "Could not parse either AQI or CO2 values"}), 400
     
     timestamp = data.get('timestamp', datetime.datetime.now().isoformat())
     
@@ -526,25 +530,20 @@ def add_lora_data():
             VALUES (?, ?, ?, ?, ?)
         ''', (sensor_id, aqi_value, co2_ppm, aqi_category, timestamp))
         conn.commit()
-        success = True
-    except sqlite3.OperationalError:
-        # Fallback to old schema if new schema fails
-        conn.execute('INSERT INTO readings (sensor_id, value, timestamp) VALUES (?, ?, ?)', 
-                    (sensor_id, aqi_value, timestamp))
-        conn.commit()
-        success = True
+        
+        return jsonify({
+            "status": "success",
+            "stored_data": {
+                "aqi_value": aqi_value,
+                "co2_ppm": co2_ppm,
+                "aqi_category": aqi_category,
+                "timestamp": timestamp
+            }
+        }), 201
+    except sqlite3.Error as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
     finally:
         conn.close()
-    
-    return jsonify({
-        "status": "success",
-        "stored_data": {
-            "aqi_value": aqi_value,
-            "co2_ppm": co2_ppm,
-            "aqi_category": aqi_category,
-            "timestamp": timestamp
-        }
-    }), 201
 
 if __name__ == '__main__':
     init_db()
