@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ 'Edit' if reading else 'Add' }} Reading - Sensor Data Manager{% endblock %}
+
+{% block content %}
+    <h2>{{ 'Edit' if reading else 'Add' }} Reading</h2>
+    
+    <div class="card">
+        <form method="post">
+            <div class="form-group">
+                <label for="sensor_id">Sensor</label>
+                <select id="sensor_id" name="sensor_id" required>
+                    {% for sensor in sensors %}
+                        <option value="{{ sensor.id }}" {% if reading and reading.sensor_id == sensor.id %}selected{% endif %}>
+                            {{ sensor.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="value">Value</label>
+                <input type="number" id="value" name="value" step="0.01" value="{{ reading.value if reading else '' }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="timestamp">Timestamp</label>
+                <input type="datetime-local" id="timestamp" name="timestamp" value="{{ reading.timestamp.replace(' ', 'T') if reading else '' }}">
+                <small>Leave empty for current time</small>
+            </div>
+            
+            <div class="form-group">
+                <button type="submit" class="btn">{{ 'Update' if reading else 'Add' }} Reading</button>
+                {% if reading %}
+                    <a href="{{ url_for('sensor_readings', id=reading.sensor_id) }}" class="btn">Cancel</a>
+                {% else %}
+                    <a href="{{ url_for('index') }}" class="btn">Cancel</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+{% endblock %} 

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ 'Edit' if sensor else 'Add' }} Sensor - Sensor Data Manager{% endblock %}
+
+{% block content %}
+    <h2>{{ 'Edit' if sensor else 'Add' }} Sensor</h2>
+    
+    <div class="card">
+        <form method="post">
+            <div class="form-group">
+                <label for="name">Sensor Name</label>
+                <input type="text" id="name" name="name" value="{{ sensor.name if sensor else '' }}" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" rows="3">{{ sensor.description if sensor else '' }}</textarea>
+            </div>
+            
+            <div class="form-group">
+                <button type="submit" class="btn">{{ 'Update' if sensor else 'Add' }} Sensor</button>
+                <a href="{{ url_for('list_sensors') }}" class="btn">Cancel</a>
+            </div>
+        </form>
+    </div>
+{% endblock %} 

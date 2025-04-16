@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "9090:9090"
+    volumes:
+      - .:/app
+      - sensor_data:/app/data
+    environment:
+      - FLASK_ENV=development
+    restart: unless-stopped
+
+volumes:
+  sensor_data: 

@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+
+{% block title %}Analytics Dashboard - Sensor Data Manager{% endblock %}
+
+{% block extra_head %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h2>Analytics Dashboard</h2>
+    
+    <div class="card">
+        <h3>AQI Readings (Last 24 Hours)</h3>
+        <div id="chart-container">
+            <canvas id="readings-chart"></canvas>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h3>AQI Categories Legend</h3>
+        <div class="aqi-legend">
+            <div><span class="good">■</span> Good (0-50): Air quality is satisfactory, poses little or no risk.</div>
+            <div><span class="moderate">■</span> Moderate (51-100): Acceptable air quality, but may cause concern for very sensitive people.</div>
+            <div><span class="unhealthy-sensitive">■</span> Unhealthy for Sensitive Groups (101-150): May affect sensitive groups.</div>
+            <div><span class="unhealthy">■</span> Unhealthy (151-200): Everyone may begin to experience health effects.</div>
+            <div><span class="very-unhealthy">■</span> Very Unhealthy (201-300): Health alert; everyone may experience more serious health effects.</div>
+            <div><span class="hazardous">■</span> Hazardous (301+): Health warning of emergency conditions.</div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('/dashboard/data')
+            .then(response => response.json())
+            .then(data => {
+                if (Object.keys(data).length === 0) {
+                    document.getElementById('chart-container').innerHTML = '<p>No data available for the last 24 hours.</p>';
+                    return;
+                }
+                
+                const ctx = document.getElementById('readings-chart').getContext('2d');
+                
+                const datasets = [];
+                const colors = [
+                    'rgb(75, 192, 192)',
+                    'rgb(255, 99, 132)',
+                    'rgb(54, 162, 235)',
+                    'rgb(255, 206, 86)',
+                    'rgb(153, 102, 255)',
+                    'rgb(255, 159, 64)'
+                ];
+                
+                let i = 0;
+                for (const sensorId in data) {
+                    const sensor = data[sensorId];
+                    
+                    // Create array of formatted timestamps and values
+                    const formattedData = sensor.timestamps.map((timestamp, index) => {
+                        return {
+                            x: new Date(timestamp),
+                            y: sensor.values[index]
+                        };
+                    });
+                    
+                    datasets.push({
+                        label: sensor.name,
+                        data: formattedData,
+                        borderColor: colors[i % colors.length],
+                        backgroundColor: colors[i % colors.length] + '33', // Add transparency
+                        tension: 0.1,
+                        pointRadius: 3
+                    });
+                    
+                    i++;
+                }
+                
+                const chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'AQI Value'
+                                }
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.raw.y;
+                                        let category = '';
+                                        
+                                        if (value <= 50) category = 'Good';
+                                        else if (value <= 100) category = 'Moderate';
+                                        else if (value <= 150) category = 'Unhealthy for Sensitive Groups';
+                                        else if (value <= 200) category = 'Unhealthy';
+                                        else if (value <= 300) category = 'Very Unhealthy';
+                                        else category = 'Hazardous';
+                                        
+                                        return `${context.dataset.label}: ${value} (${category})`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+                document.getElementById('chart-container').innerHTML = '<p>Error loading chart data.</p>';
+            });
+    });
+</script>
+{% endblock %} 
