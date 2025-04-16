@@ -106,10 +106,11 @@ def index():
     conn = get_db_connection()
     # Get latest reading from each sensor
     latest_readings = conn.execute('''
-        SELECT s.id, s.name, s.description, r.value, r.timestamp
+        SELECT s.id, s.name, s.description, 
+               r.aqi_value as value, r.co2_ppm, r.aqi_category, r.timestamp
         FROM sensors s
         LEFT JOIN (
-            SELECT sensor_id, value, timestamp
+            SELECT sensor_id, aqi_value, co2_ppm, aqi_category, timestamp
             FROM readings r1
             WHERE timestamp = (
                 SELECT MAX(timestamp) FROM readings r2 WHERE r2.sensor_id = r1.sensor_id
@@ -127,8 +128,9 @@ def index():
             'name': reading['name'],
             'description': reading['description'],
             'value': reading['value'],
+            'co2_ppm': reading['co2_ppm'] if 'co2_ppm' in reading.keys() else None,
             'timestamp': reading['timestamp'],
-            'category': category,
+            'category': reading['aqi_category'] if reading['aqi_category'] else category,
             'class_name': class_name
         })
     
@@ -223,7 +225,7 @@ def sensor_readings(id):
         return redirect(url_for('list_sensors'))
     
     readings = conn.execute('''
-        SELECT id, value, timestamp
+        SELECT id, aqi_value as value, co2_ppm, aqi_category, timestamp
         FROM readings
         WHERE sensor_id = ?
         ORDER BY timestamp DESC
@@ -237,8 +239,9 @@ def sensor_readings(id):
         processed_readings.append({
             'id': reading['id'],
             'value': reading['value'],
+            'co2_ppm': reading['co2_ppm'] if 'co2_ppm' in reading.keys() else None,
             'timestamp': reading['timestamp'],
-            'category': category,
+            'category': reading['aqi_category'] if reading['aqi_category'] else category,
             'class_name': class_name
         })
     
